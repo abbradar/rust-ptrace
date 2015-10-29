@@ -80,7 +80,7 @@ fn test_write_large_buf() {
     let (buf_addr, pid) = fork_with_buffer(s);
     let writer = ptrace::Writer::new(pid);
     let mut buf: Vec<u8> = Vec::new();
-    buf.push_all("FRIDDLE FRITZ FROB BAZ BAR FOO".as_bytes());
+    buf.extend(b"FRIDDLE FRITZ FROB BAZ BAR FOO");
     match writer.write_data(buf_addr as u64, &buf) {
         Ok(_) => {
             let reader = ptrace::Reader::new(pid);

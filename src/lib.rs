@@ -3,7 +3,8 @@ extern crate libc;
 extern crate posix_ipc as ipc;
 #[macro_use]
 extern crate bitflags;
-#[macro_use] extern crate enum_primitive;
+#[macro_use]
+extern crate enum_primitive;
 extern crate num;
 
 use std::ptr;
@@ -12,10 +13,73 @@ use std::vec::Vec;
 use std::mem;
 use std::io;
 
-use num::traits::FromPrimitive;
+use num::FromPrimitive;
 
-pub type Address = u64;
-pub type Word = u64;
+#[cfg(target_arch = "x86_64")]
+mod regs {
+  pub type Address = u64;
+  pub type Word = u64;
+
+  #[derive(Copy, Clone, Default, Debug)]
+  pub struct Registers {
+    pub r15: Word,
+    pub r14: Word,
+    pub r13: Word,
+    pub r12: Word,
+    pub rbp: Word,
+    pub rbx: Word,
+    pub r11: Word,
+    pub r10: Word,
+    pub r9: Word,
+    pub r8: Word,
+    pub rax: Word,
+    pub rcx: Word,
+    pub rdx: Word,
+    pub rsi: Word,
+    pub rdi: Word,
+    pub orig_rax: Word,
+    pub rip: Word,
+    pub cs: Word,
+    pub eflags: Word,
+    pub rsp: Word,
+    pub ss: Word,
+    pub fs_base: Word,
+    pub gs_base: Word,
+    pub ds: Word,
+    pub es: Word,
+    pub fs: Word,
+    pub gs: Word
+  }
+}
+
+#[cfg(target_arch = "x86")]
+mod regs {
+  pub type Address = u32;
+  pub type Word = u32;
+
+  #[derive(Copy, Clone, Default, Debug)]
+  pub struct Registers {
+    pub ebx: Word,
+    pub ecx: Word,
+    pub edx: Word,
+    pub esi: Word,
+    pub edi: Word,
+    pub ebp: Word,
+    pub eax: Word,
+    pub xds: Word,
+    pub xes: Word,
+    pub xfs: Word,
+    pub xgs: Word,
+    pub orig_eax: Word,
+    pub eip: Word,
+    pub xcs: Word,
+    pub eflags: Word,
+    pub esp: Word,
+    pub xss: Word,
+  }
+}
+
+pub use regs::*;
 
 #[derive(Copy, Clone)]
 pub enum Action {
@@ -39,8 +103,10 @@ pub enum Request {
   SetRegs = 13,
   Attach = 16,
   Detatch = 17,
+  Syscall = 24,
   SetOptions = 0x4200,
-  Seize = 0x4206
+  GetEventMsg = 0x4201,
+  Seize = 0x4206,
 }
 
 enum_from_primitive! {
@@ -64,37 +130,6 @@ impl Event {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug)]
-pub struct Registers {
-  pub r15: Word,
-  pub r14: Word,
-  pub r13: Word,
-  pub r12: Word,
-  pub rbp: Word,
-  pub rbx: Word,
-  pub r11: Word,
-  pub r10: Word,
-  pub r9: Word,
-  pub r8: Word,
-  pub rax: Word,
-  pub rcx: Word,
-  pub rdx: Word,
-  pub rsi: Word,
-  pub rdi: Word,
-  pub orig_rax: Word,
-  pub rip: Word,
-  pub cs: Word,
-  pub eflags: Word,
-  pub rsp: Word,
-  pub ss: Word,
-  pub fs_base: Word,
-  pub gs_base: Word,
-  pub ds: Word,
-  pub es: Word,
-  pub fs: Word,
-  pub gs: Word
-}
-
 bitflags! {
   flags Options: u32 {
     const SysGood = 1,
@@ -109,10 +144,11 @@ bitflags! {
   }
 }
 
-pub fn setoptions(pid: libc::pid_t, opts: Options) -> Result<libc::c_long, libc::c_int> {
+pub fn setoptions(pid: libc::pid_t, opts: Options) -> Result<(), libc::c_int> {
   unsafe {
     raw (Request::SetOptions, pid, ptr::null_mut(), opts.bits as *mut
     libc::c_void)
+      .map(|c| assert!(c == 0))
   }
 }
 
@@ -153,15 +189,30 @@ pub fn release(pid: libc::pid_t, signal: ipc::signals::Signal) -> Result<libc::c
   }
 }
 
-pub fn cont(pid: libc::pid_t, signal: ipc::signals::Signal) -> Result<libc::c_long, libc::c_int> {
+pub fn cont(pid: libc::pid_t, signal: ipc::signals::Signal) -> Result<(), libc::c_int> {
   unsafe {
     raw (Request::Continue, pid, ptr::null_mut(), (signal as u32) as *mut libc::c_void)
+      .map(|c| assert!(c == 0))
   }
 }
 
-pub fn traceme() -> Result<libc::c_long, libc::c_int> {
+pub fn syscall(pid: libc::pid_t, signal: ipc::signals::Signal) -> Result<(), libc::c_int> {
   unsafe {
-    raw (Request::TraceMe, 0, ptr::null_mut(), ptr::null_mut())
+    raw (Request::Syscall, pid, ptr::null_mut(), (signal as u32) as *mut libc::c_void)
+      .map(|c| assert!(c == 0))
+  }
+}
+
+pub fn traceme() -> Result<(), libc::c_int> {
+  unsafe {
+    raw (Request::TraceMe, 0, ptr::null_mut(), ptr::null_mut()).map(|c| assert!(c == 0))
+  }
+}
+
+pub fn geteventmsg(pid: libc::pid_t) -> Result<libc::c_long, libc::c_int> {
+  unsafe {
+    let mut val: libc::c_long = 0;
+    raw (Request::GetEventMsg, pid, ptr::null_mut(), (&mut val as *mut libc::c_long) as *mut libc::c_void).map(|c| { assert!(c == 0); val })
   }
 }
 
